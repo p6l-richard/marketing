@@ -5,18 +5,18 @@ h1: "API Load Balancing: Essentials & Best Practices"
 term: Load Balancing
 categories: []
 takeaways:
-  tldr: Load Balancing is the process of distributing network traffic across multiple servers to ensure no single server bears too much demand. This improves application performance, reliability, and availability.
-  didYouKnow: The 'Power of Two Random Choices' is a load balancing algorithm that, instead of scanning all servers to place a request, selects two servers at random and places the request on the less loaded server. This algorithm is known for its simplicity and effectiveness.
+  tldr: Load balancing is the process of distributing network traffic across multiple servers to ensure no single server bears too much demand. This improves application performance, reliability, and availability.
+  didYouKnow: The concept of load balancing originated in telecommunications to evenly distribute processing and communications activity evenly across a computer network.
   usageInAPIs:
     tags:
       - Load Balancing
       - API Performance
       - Scalability
-    description: Load balancing is crucial in API management to distribute incoming requests across multiple servers, preventing any single server from becoming a bottleneck. It enhances API performance, ensures high availability, and enables scalability. Different load balancing algorithms can be used depending on the application requirements.
+    description: In APIs, load balancing is used to distribute incoming requests across multiple servers, improving performance and preventing any single server from becoming a bottleneck. It is crucial for handling high traffic loads and ensuring reliable, responsive service. Load balancing can be implemented at various levels, including DNS, hardware, or software, and can use different strategies like round-robin, least connections, or IP hash.
   bestPractices:
-    - Choose the appropriate load balancing algorithm based on your application's needs and traffic patterns.
-    - Ensure your load balancer supports health checks to detect and avoid routing traffic to failed servers.
-    - Consider session persistence if your application requires a consistent user experience across requests.
+    - Choose the right load balancing algorithm based on your application's needs and traffic patterns.
+    - Ensure your load balancer can handle failover scenarios to maintain high availability.
+    - Monitor and adjust your load balancing strategy regularly to optimize performance.
   historicalContext:
     - key: Introduced
       value: Est. ~1980s
@@ -27,19 +27,19 @@ takeaways:
   recommendedReading:
     - url: https://datatracker.ietf.org/doc/html/draft-ietf-quic-load-balancers
       title: "QUIC-LB: Generating Routable QUIC Connection IDs"
-    - url: https://en.wikipedia.org/wiki/Network_load_balancing
-      title: Network Load Balancing (Wikipedia)
     - url: https://news.ycombinator.com/item?id=37143376
-      title: "Load Balancing: The Intuition Behind the Power of Two Random Choices (Hacker News)"
-    - url: https://aws.amazon.com/what-is/load-balancing/
-      title: What is Load Balancing? (AWS)
+      title: "Load Balancing: The Intuition Behind the Power of Two Random Choices"
+    - url: https://en.wikipedia.org/wiki/Load_balancing_(computing)
+      title: Load balancing (computing)
+    - url: https://www.geeksforgeeks.org/what-is-load-balancer-system-design/
+      title: What is Load Balancer? - System Design
   definitionAndStructure:
-    - key: Load Balancer
-      value: Traffic Distributor
-    - key: Algorithms
-      value: Traffic Routing Rules
-    - key: Server Pool
-      value: Resource Group
+    - key: Distributes Traffic
+      value: Evenly Spreads Requests
+    - key: Prevents Overload
+      value: Server Strain Reduction
+    - key: Improves Performance
+      value: Optimized Response Time
 faq:
   - question: What is load balancing in API?
     answer: Load balancing in the context of APIs refers to the process of distributing incoming API requests across multiple servers. This is done to optimize system performance, prevent any single server from becoming a bottleneck, and ensure high availability and reliability. The load balancer acts as a reverse proxy, deciding which server to route a request to based on various algorithms, such as round-robin, least connections, or IP hash. This process is transparent to the client making the request.
@@ -49,7 +49,7 @@ faq:
     answer: "The three types of load balancers are: 1) Application Load Balancer (ALB), which operates at the application layer and makes routing decisions based on content of the request. 2) Network Load Balancer (NLB), which operates at the transport layer and makes routing decisions based on IP address and port. 3) Gateway Load Balancer (GLB), which operates at the network edge and is designed to support scalable, transparent, and secure delivery of services. These types of load balancers are often used in cloud environments to distribute traffic across multiple servers or instances."
   - question: What is the difference between load balancing and caching?
     answer: Load balancing and caching are both techniques used to optimize system performance, but they serve different purposes. Load balancing is about distributing incoming network traffic across multiple servers to ensure no single server is overwhelmed and system performance is optimized. On the other hand, caching is a technique used to store frequently accessed data closer to the client to reduce network traffic and database queries, thereby speeding up response times. While both can improve system performance, they do so in different ways and are often used together for optimal results.
-updatedAt: 2025-05-27T16:17:29.000Z
+updatedAt: 2025-05-27T16:57:14.000Z
 slug: load-balancing
 ---
 

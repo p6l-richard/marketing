@@ -1,6 +1,6 @@
 import { db } from "@/lib/db-marketing/client";
 import { keywords } from "@/lib/db-marketing/schemas";
-import { getOrCreateFirecrawlResponse } from "@/lib/firecrawl";
+import { getOrCreateFirecrawlResponsesSequentially } from "@/lib/firecrawl";
 import { AbortTaskRunError, task } from "@trigger.dev/sdk/v3";
 import { sql } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
@@ -49,19 +49,28 @@ export const keywordResearchTask = task({
       `2/6 - SEARCH RESPONSE: Found ${searchResponse.serperOrganicResults.length} organic results`,
     );
 
-    console.info(`3/6 - Getting content for top ${THREE} results`);
+    console.info(`3/6 - Getting content for top ${THREE} results (sequentially to avoid rate limits)`);
     const topThree = searchResponse.serperOrganicResults
       .sort((a, b) => a.position - b.position)
       .slice(0, THREE);
 
-    // Get content for top 3 results
-    const firecrawlResults = await Promise.all(
-      topThree.map((result) =>
-        getOrCreateFirecrawlResponse({ url: result.link, connectTo: { term: term } }),
-      ),
+    // Get content for top 3 results sequentially to avoid rate limiting
+    const firecrawlResults = await getOrCreateFirecrawlResponsesSequentially(
+      topThree.map((result) => ({
+        url: result.link,
+        connectTo: { term: term }
+      })),
+      1500 // 1.5 second delay between requests
     );
 
-    console.info(`4/6 - Found ${firecrawlResults.length} firecrawl results`);
+    const successfulResults = firecrawlResults.filter(result => result?.success);
+    const failedResults = firecrawlResults.filter(result => !result?.success);
+    
+    console.info(`4/6 - Found ${firecrawlResults.length} firecrawl results (${successfulResults.length} successful, ${failedResults.length} failed)`);
+    
+    if (failedResults.length > 0) {
+      console.warn(`⚠️ Some URLs failed to scrape: ${failedResults.map(r => r?.sourceUrl).join(', ')}`);
+    }
 
     const keywordsFromTitles = await getOrCreateKeywordsFromTitles({
       term: term,
@@ -101,17 +110,23 @@ export const keywordResearchTask = task({
       ),
     });
 
+    const totalKeywords = keywordsFromTitles.length + keywordsFromHeaders.length + insertedRelatedSearches.length;
+    const resultSummary = `${successfulResults.length}/${topThree.length} URLs scraped successfully`;
+    
     console.info(
-      `✅ Keyword Research for ${term} completed. Total keywords: ${
-        keywordsFromTitles.length + keywordsFromHeaders.length + insertedRelatedSearches.length
-      }`,
+      `✅ Keyword Research for ${term} completed. Total keywords: ${totalKeywords} (${resultSummary})`,
     );
 
     return {
-      message: `Keyword Research for ${term} completed`,
+      message: `Keyword Research for ${term} completed (${resultSummary})`,
       term: searchQuery.inputTerm,
       keywords: [...keywordsFromTitles, ...keywordsFromHeaders, ...insertedRelatedSearches],
       entry: entryWithSearchQuery,
+      firecrawlStats: {
+        total: firecrawlResults.length,
+        successful: successfulResults.length,
+        failed: failedResults.length,
+      },
     };
   },
 });

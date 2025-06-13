@@ -39,19 +39,6 @@ async function retryWithExponentialBackoff<T>(
 - **Jitter**: Random component to prevent thundering herd
 - **Max Attempts**: Configurable retry limit (default: 3 attempts)
 
-**C. Sequential Processing Function**
-```typescript
-export async function getOrCreateFirecrawlResponsesSequentially(
-  requests: Array<{ url: string; connectTo: { term: string } }>,
-  delayBetweenRequests: number = 1000
-): Promise<Array<...>>
-```
-
-- **Sequential Processing**: Processes URLs one at a time
-- **Configurable Delays**: Customizable delay between requests
-- **Progress Logging**: Detailed logging of processing status
-- **Statistics**: Returns success/failure counts
-
 #### Enhanced Error Handling:
 
 **Before:**
@@ -95,89 +82,152 @@ const firecrawlResults = await Promise.all(
 );
 ```
 
-**After - Sequential Processing:**
+**After - Batch Processing with Trigger.dev:**
 ```typescript
-const firecrawlResults = await getOrCreateFirecrawlResponsesSequentially(
+// Individual scraping task for batch processing
+export const scrapeUrlTask = task({
+  id: "scrape_url_batch",
+  retry: { maxAttempts: 3 },
+  run: async (payload: { url: string; connectTo: { term: string } }) => {
+    const result = await getOrCreateFirecrawlResponse(payload);
+    return {
+      url: payload.url,
+      success: result?.success || false,
+      error: result?.error || null,
+      hasContent: Boolean(result?.markdown),
+      result,
+    };
+  },
+});
+
+// Batch processing in main workflow
+const batchResults = await scrapeUrlTask.batchTriggerAndWait(
   topThree.map((result) => ({
-    url: result.link,
-    connectTo: { term: term }
-  })),
-  1500 // 1.5 second delay between requests
+    payload: {
+      url: result.link,
+      connectTo: { term: term }
+    }
+  }))
 );
 ```
 
 #### Enhanced Monitoring:
-- **Success/Failure Tracking**: Separates successful vs failed scraping attempts
-- **Detailed Logging**: Reports exactly which URLs failed and why
-- **Statistics**: Returns comprehensive stats about scraping results
+- **Batch Result Processing**: Handles successful and failed batch executions
+- **Detailed Error Logging**: Reports specific errors for each URL
+- **Comprehensive Statistics**: Tracks success/failure rates and failed URLs
 - **Graceful Degradation**: Continues processing even if some URLs fail
 
 ## Benefits of the Solution
 
 ### 1. Rate Limiting Protection
 - **Exponential Backoff**: Automatically handles temporary rate limits
-- **Sequential Processing**: Prevents overwhelming the API
-- **Configurable Delays**: Can be tuned based on API limits
+- **Trigger.dev Batch Processing**: Controlled concurrent execution
+- **Individual Task Retry**: Each URL gets its own retry attempts
 
 ### 2. Improved Reliability
 - **Partial Failure Resilience**: Workflow continues even if some URLs fail
 - **Smart Retry Logic**: Only retries appropriate errors
-- **Better Error Context**: Clear distinction between rate limits and other errors
+- **Task-Level Isolation**: Failed URLs don't affect successful ones
 
 ### 3. Enhanced Monitoring
-- **Detailed Statistics**: Track success/failure rates
-- **Progress Visibility**: See exactly which URLs are being processed
+- **Detailed Statistics**: Track success/failure rates and failed URLs
+- **Batch Processing Visibility**: See individual task results
 - **Comprehensive Logging**: Better debugging and monitoring
 
-### 4. Maintainability
-- **Type Safety**: Proper TypeScript types for Firecrawl responses
-- **Separation of Concerns**: Rate limiting logic isolated from business logic
-- **Reusable Functions**: Sequential processing can be used elsewhere
+### 4. Scalability
+- **Trigger.dev Infrastructure**: Leverages platform's scaling capabilities
+- **Concurrent Processing**: Faster than sequential, safer than uncontrolled concurrency
+- **Task Isolation**: Each URL scraping is an independent task
 
 ## Configuration Options
 
 ### Rate Limiting Parameters:
-- **Max Retries**: Default 3, configurable per call
+- **Max Retries**: Default 3, configurable per task
 - **Base Delay**: Default 2000ms (2 seconds)
-- **Request Delay**: Default 1500ms between sequential requests
+- **Batch Size**: Automatically handled by Trigger.dev (up to 500 tasks)
 
 ### Usage Examples:
 
-**Basic Usage:**
+**Individual URL Scraping:**
 ```typescript
-const result = await getOrCreateFirecrawlResponse({
+const result = await scrapeUrlTask.triggerAndWait({
   url: "https://example.com",
   connectTo: { term: "api" }
 });
 ```
 
-**Sequential Processing:**
+**Batch Processing:**
 ```typescript
-const results = await getOrCreateFirecrawlResponsesSequentially([
-  { url: "https://example1.com", connectTo: { term: "api" } },
-  { url: "https://example2.com", connectTo: { term: "api" } },
-], 2000); // 2 second delay between requests
+const batchResults = await scrapeUrlTask.batchTriggerAndWait([
+  { payload: { url: "https://example1.com", connectTo: { term: "api" } } },
+  { payload: { url: "https://example2.com", connectTo: { term: "api" } } },
+  { payload: { url: "https://example3.com", connectTo: { term: "api" } } },
+]);
+
+// Process results
+for (const result of batchResults) {
+  if (result.ok) {
+    console.log(`✅ ${result.output.url}: ${result.output.success ? 'Success' : 'Failed'}`);
+  } else {
+    console.log(`❌ Batch task failed: ${result.error}`);
+  }
+}
 ```
+
+## Architecture Benefits
+
+### Trigger.dev Batch Processing Advantages:
+1. **Built-in Concurrency Control**: No need to manage concurrent request limits manually
+2. **Task Isolation**: Each URL scraping runs in its own isolated environment
+3. **Automatic Retry**: Each task can retry independently based on its configuration
+4. **Observability**: Full visibility into individual task execution in Trigger.dev dashboard
+5. **Scalability**: Leverages Trigger.dev's infrastructure for scaling
+
+### Comparison with Previous Approaches:
+
+| Approach | Concurrency | Rate Limit Handling | Failure Resilience | Observability |
+|----------|-------------|-------------------|-------------------|---------------|
+| Original `Promise.all()` | Uncontrolled | ❌ None | ❌ Fails entirely | ❌ Limited |
+| Sequential Processing | ❌ Slow | ✅ Built-in delays | ✅ Continues on failure | ⚠️ Basic logging |
+| **Trigger.dev Batch** | ✅ Controlled | ✅ Per-task retry | ✅ Task isolation | ✅ Full dashboard |
 
 ## Testing Recommendations
 
 1. **Rate Limit Testing**: Test with a high volume of requests to verify rate limiting works
 2. **Failure Scenarios**: Test partial failures to ensure workflow resilience
-3. **Performance Testing**: Measure the impact of sequential vs concurrent processing
-4. **Monitoring**: Verify that statistics and logging provide adequate visibility
+3. **Batch Processing**: Verify that batch results are properly handled
+4. **Dashboard Monitoring**: Check Trigger.dev dashboard for task execution visibility
 
 ## Future Improvements
 
-1. **Dynamic Rate Limiting**: Adjust delays based on API response headers
+1. **Dynamic Batch Sizing**: Adjust batch size based on API performance
 2. **Circuit Breaker**: Temporarily stop requests if too many failures occur
-3. **Parallel Processing with Limits**: Use a semaphore to limit concurrent requests
-4. **Metric Collection**: Add metrics for monitoring rate limit frequency
+3. **Adaptive Rate Limiting**: Adjust retry delays based on API response headers
+4. **Metric Collection**: Add custom metrics for monitoring rate limit frequency
 
 ## Migration Impact
 
-- **Backward Compatible**: Existing code continues to work
-- **Performance**: Sequential processing is slower but more reliable
-- **Resource Usage**: Lower peak load on Firecrawl API
-- **Cost**: Potentially lower API costs due to fewer failed requests
+- **Performance**: Batch processing provides optimal balance of speed and reliability
+- **Resource Usage**: Better utilization of Trigger.dev infrastructure
+- **Cost**: Potentially lower API costs due to fewer failed requests and better retry handling
+- **Observability**: Significantly improved monitoring and debugging capabilities
+- **Maintainability**: Cleaner separation of concerns with individual scraping tasks
 
-This solution transforms the keyword research workflow from fragile and prone to rate limiting failures into a robust, resilient system that gracefully handles API limitations while providing comprehensive monitoring and statistics.
+## Key Implementation Details
+
+### Error Handling Flow:
+1. **Task Level**: Each scraping task handles its own rate limiting and retries
+2. **Batch Level**: Batch processing handles task execution failures
+3. **Workflow Level**: Main workflow processes batch results and continues regardless of individual failures
+
+### Statistics Tracking:
+```typescript
+firecrawlStats: {
+  total: firecrawlResults.length,
+  successful: successfulResults.length,
+  failed: failedResults.length,
+  failedUrls: failedResults.map(r => ({ url: r.url, error: r.error })),
+}
+```
+
+This solution transforms the keyword research workflow from a fragile, rate-limit-prone process into a robust, scalable system that leverages Trigger.dev's batch processing capabilities while maintaining comprehensive error handling and observability.

@@ -198,36 +198,3 @@ export async function getOrCreateFirecrawlResponse(args: {
     });
   }
 }
-
-/**
- * Processes multiple URLs sequentially to avoid rate limiting.
- * Use this instead of Promise.all() when making multiple Firecrawl requests.
- */
-export async function getOrCreateFirecrawlResponsesSequentially(
-  requests: Array<{ url: string; connectTo: { term: string } }>,
-  delayBetweenRequests: number = 1000
-): Promise<Array<Awaited<ReturnType<typeof getOrCreateFirecrawlResponse>>>> {
-  const results = [];
-  
-  console.info(`Processing ${requests.length} URLs sequentially with ${delayBetweenRequests}ms delay between requests`);
-  
-  for (let i = 0; i < requests.length; i++) {
-    const request = requests[i];
-    console.info(`Processing URL ${i + 1}/${requests.length}: ${request.url}`);
-    
-    const result = await getOrCreateFirecrawlResponse(request);
-    results.push(result);
-    
-    // Add delay between requests (except for the last one)
-    if (i < requests.length - 1) {
-      await wait(delayBetweenRequests);
-    }
-  }
-  
-  const successCount = results.filter(r => r?.success).length;
-  const errorCount = results.length - successCount;
-  
-  console.info(`✅ Completed processing ${requests.length} URLs: ${successCount} successful, ${errorCount} failed`);
-  
-  return results;
-}

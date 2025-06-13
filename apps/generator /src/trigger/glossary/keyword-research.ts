@@ -1,6 +1,6 @@
 import { db } from "@/lib/db-marketing/client";
 import { keywords } from "@/lib/db-marketing/schemas";
-import { getOrCreateFirecrawlResponsesSequentially } from "@/lib/firecrawl";
+import { getOrCreateFirecrawlResponse } from "@/lib/firecrawl";
 import { AbortTaskRunError, task } from "@trigger.dev/sdk/v3";
 import { sql } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
@@ -11,6 +11,31 @@ import { getOrCreateSearchResponse } from "../../lib/serper";
 import type { CacheStrategy } from "./_generate-glossary-entry";
 
 export const THREE = 3;
+
+/**
+ * Individual task for scraping a single URL with rate limiting protection.
+ * This task is used with batch processing for concurrent URL scraping.
+ */
+export const scrapeUrlTask = task({
+  id: "scrape_url_batch",
+  retry: {
+    maxAttempts: 3,
+  },
+  run: async (payload: {
+    url: string;
+    connectTo: { term: string };
+  }) => {
+    const result = await getOrCreateFirecrawlResponse(payload);
+    
+    return {
+      url: payload.url,
+      success: result?.success || false,
+      error: result?.error || null,
+      hasContent: Boolean(result?.markdown),
+      result,
+    };
+  },
+});
 
 export const keywordResearchTask = task({
   id: "keyword_research",
@@ -49,27 +74,54 @@ export const keywordResearchTask = task({
       `2/6 - SEARCH RESPONSE: Found ${searchResponse.serperOrganicResults.length} organic results`,
     );
 
-    console.info(`3/6 - Getting content for top ${THREE} results (sequentially to avoid rate limits)`);
+    console.info(`3/6 - Getting content for top ${THREE} results using batch processing`);
     const topThree = searchResponse.serperOrganicResults
       .sort((a, b) => a.position - b.position)
       .slice(0, THREE);
 
-    // Get content for top 3 results sequentially to avoid rate limiting
-    const firecrawlResults = await getOrCreateFirecrawlResponsesSequentially(
+    // Use batch processing to handle multiple URLs concurrently with rate limiting
+    const batchResults = await scrapeUrlTask.batchTriggerAndWait(
       topThree.map((result) => ({
-        url: result.link,
-        connectTo: { term: term }
-      })),
-      1500 // 1.5 second delay between requests
+        payload: {
+          url: result.link,
+          connectTo: { term: term }
+        }
+      }))
     );
 
-    const successfulResults = firecrawlResults.filter(result => result?.success);
-    const failedResults = firecrawlResults.filter(result => !result?.success);
+    // Process batch results
+    const firecrawlResults = [];
+    const successfulResults = [];
+    const failedResults = [];
+
+    for (const batchResult of batchResults) {
+      if (batchResult.ok) {
+        firecrawlResults.push(batchResult.output.result);
+        if (batchResult.output.success) {
+          successfulResults.push(batchResult.output);
+        } else {
+          failedResults.push(batchResult.output);
+        }
+      } else {
+        console.error(`Batch task failed for URL: ${JSON.stringify(batchResult)}`);
+        failedResults.push({
+          url: 'unknown',
+          success: false,
+          error: 'Batch task execution failed',
+          hasContent: false
+        });
+      }
+    }
     
     console.info(`4/6 - Found ${firecrawlResults.length} firecrawl results (${successfulResults.length} successful, ${failedResults.length} failed)`);
     
     if (failedResults.length > 0) {
-      console.warn(`⚠️ Some URLs failed to scrape: ${failedResults.map(r => r?.sourceUrl).join(', ')}`);
+      console.warn(`⚠️ Some URLs failed to scrape: ${failedResults.map(r => r.url).join(', ')}`);
+      failedResults.forEach(failed => {
+        if (failed.error) {
+          console.warn(`  - ${failed.url}: ${failed.error}`);
+        }
+      });
     }
 
     const keywordsFromTitles = await getOrCreateKeywordsFromTitles({
@@ -87,7 +139,7 @@ export const keywordResearchTask = task({
     await db
       .insert(keywords)
       .values(
-        searchResponse.serperRelatedSearches.map((search) => ({
+        searchResponse.serperRelatedSearches.map((search: { query: string }) => ({
           inputTerm: searchQuery.inputTerm,
           keyword: search.query.toLowerCase(),
           source: "related_searches",
@@ -105,7 +157,7 @@ export const keywordResearchTask = task({
         eq(keywords.source, "related_searches"),
         inArray(
           keywords.keyword,
-          searchResponse.serperRelatedSearches.map((search) => search.query.toLowerCase()),
+          searchResponse.serperRelatedSearches.map((search: { query: string }) => search.query.toLowerCase()),
         ),
       ),
     });
@@ -126,6 +178,7 @@ export const keywordResearchTask = task({
         total: firecrawlResults.length,
         successful: successfulResults.length,
         failed: failedResults.length,
+        failedUrls: failedResults.map(r => ({ url: r.url, error: r.error })),
       },
     };
   },
